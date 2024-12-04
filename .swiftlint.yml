@@ -1,0 +1,11 @@
+excluded:
+  - vendor
+  - BuildTools/.build
+
+only_rules:
+  - custom_rules
+
+custom_rules:
+  noop:
+    regex: "noop^"
+    match_kinds: comment

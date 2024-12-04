@@ -1,0 +1,114 @@
+version: 2.1
+
+orbs:
+  macos: circleci/macos@2.5.2
+
+executors:
+  mac-executor:
+    macos:
+      xcode: "15.4.0"
+    resource_class: macos.m1.medium.gen1
+
+jobs:
+  prepare-build:
+    executor: mac-executor
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - gem-cache-v3-{{ checksum "Gemfile.lock" }}
+            - gem-cache-v3
+      - run:
+          name: Find Ruby Version
+          command: |
+            export RUBY_VERSION=$(cat .ruby-version || echo system)
+            echo "ORB_VAL_RUBY_VERSION=$RUBY_VERSION" >> $BASH_ENV
+      - macos/switch-ruby:
+          version: $ORB_VAL_RUBY_VERSION
+      - run:
+          command: |
+            bundle config --local path 'vendor/bundle'
+            bundle install --jobs 4 --retry 3
+      - save_cache:
+          key: gem-cache-v3-{{ checksum "Gemfile.lock" }}
+          paths:
+            - vendor/bundle
+      - persist_to_workspace:
+          root: .
+          paths:
+            - vendor/bundle
+
+  test:
+    executor: mac-executor
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Test
+          command: |
+            bundle config --local path vendor/bundle
+            bundle exec fastlane test
+      - store_test_results:
+          path: fastlane/test_output
+      - persist_to_workspace:
+          root: .
+          paths:
+            - fastlane/test_output/derived_data/Logs/Test/
+
+  lint:
+    executor: mac-executor
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Lint
+          command: |
+            cd BuildTools && swift package resolve && cd ..
+            bundle config --local path vendor/bundle
+            bundle exec fastlane lint
+      - store_artifacts:
+          path: fastlane/test_output
+      - persist_to_workspace:
+          root: .
+          paths:
+            - fastlane/test_output/swiftformat
+            - fastlane/test_output/swiftlint
+
+  sonarcloud:
+    executor: mac-executor
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Sonarcloud
+          command: |
+            if [ -z "$FL_SONAR_LOGIN" ]; then
+              echo "No Sonarcloud token is set. Failing."
+              exit 1;
+            fi
+            HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install sonar-scanner --display-times || true
+            bundle config --local path vendor/bundle
+            bundle exec fastlane sonarqube
+
+workflows:
+  pr_workflow:
+    jobs:
+      - prepare-build
+      - lint:
+          requires:
+            - prepare-build
+      - test:
+          requires:
+            - prepare-build
+      - sonarcloud:
+          requires:
+            - lint
+            - test
+          filters:
+            branches:
+              ignore: /pull\/[0-9]+/ # Forked pull requests
+          context:
+            - sonarcloud
