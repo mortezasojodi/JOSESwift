@@ -73,6 +73,35 @@ public struct JWSHeader: JOSEHeader {
         // swiftlint:disable:next force_try
         try! self.init(parameters: parameters)
     }
+    
+    public init(algorithm: SignatureAlgorithm,  p: [String: Any]) {
+         var parameters: [String: Any] = [:]
+         parameters = ["alg": algorithm.rawValue]
+
+        for (key, value) in p {
+            switch value {
+            case let v as String:
+                parameters[key] = v
+            case let v as Bool:
+                parameters[key] = v
+            case let v as Int:
+                parameters[key] = v
+            case let v as Double:
+                parameters[key] = v
+            case let v as [String]:
+                parameters[key] = v
+            case let v as Data:
+                parameters[key] = v
+            default:
+                continue
+            }
+        }
+
+        // Forcing the try is ok here, since [String: String] can be converted to JSON and "alg" is the only required
+        // header parameter, which should pass the guard conditions in the main initializer
+        // swiftlint:disable:next force_try
+        try! self.init(parameters: parameters)
+    }
 
     /// Initializes a `JWSHeader` with the specified parameters.
     public init(parameters: [String: Any]) throws {
